@@ -1,0 +1,30 @@
+{
+  "manifest_version": 3,
+  "name": "Score Bayesiano — Mercado Livre",
+  "version": "0.1.0",
+  "description": "Calcula um score bayesiano (nota ajustada pela quantidade de avaliações) para os produtos da busca do Mercado Livre.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "https://*.mercadolivre.com.br/*",
+    "https://*.mercadolibre.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://lista.mercadolivre.com.br/*",
+        "https://*.mercadolivre.com.br/*"
+      ],
+      "js": ["src/bayes.js", "src/content.js"],
+      "css": ["src/styles.css"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "Score Bayesiano"
+  }
+}

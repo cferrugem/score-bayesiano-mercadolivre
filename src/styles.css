@@ -1,0 +1,98 @@
+.mlscore-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+.mlscore-badge,
+.mlscore-cb {
+  display: inline-block;
+  font: 700 12px/1 -apple-system, Roboto, Arial, sans-serif;
+  color: #fff;
+  background: #3483fa;
+  padding: 4px 8px;
+  border-radius: 6px;
+  letter-spacing: 0.2px;
+  cursor: help;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+/* custo-benefício: contorno para distinguir do badge de qualidade */
+.mlscore-cb {
+  color: #0a0a0a;
+  background: #ffe600;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15);
+}
+.mlscore-cb--loading {
+  background: #f3f3f3;
+  color: #888;
+  font-weight: 500;
+  box-shadow: none;
+}
+/* vendas: neutro, para não competir com qualidade/custo-benefício */
+.mlscore-sold {
+  display: inline-block;
+  font: 600 12px/1 -apple-system, Roboto, Arial, sans-serif;
+  color: #333;
+  background: #eef1f5;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: help;
+}
+.mlscore-sold--loading {
+  color: #999;
+}
+/* avaliações (nº exato do detalhe): azul claro, distinto de vendas */
+.mlscore-reviews {
+  display: inline-block;
+  font: 600 12px/1 -apple-system, Roboto, Arial, sans-serif;
+  color: #2968c8;
+  background: #e7f0ff;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: help;
+}
+.mlscore-reviews--loading {
+  color: #9bb6e0;
+}
+.mlscore-badge--loading {
+  background: #eee;
+  color: #666;
+  font-weight: 500;
+}
+.mlscore-badge--error {
+  background: #f0f0f0;
+  color: #999;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+#mlscore-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  margin: 0 0 12px;
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 8px;
+}
+.mlscore-toolbar__title {
+  font: 700 14px/1 -apple-system, Roboto, Arial, sans-serif;
+  color: #3483fa;
+}
+.mlscore-toolbar__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 600 13px/1 -apple-system, Roboto, Arial, sans-serif;
+  color: #333;
+}
+.mlscore-toolbar__select {
+  font: 600 13px/1 -apple-system, Roboto, Arial, sans-serif;
+  color: #3483fa;
+  background: #eaf1ff;
+  border: 1px solid #c5dbff;
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+}

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { width: 260px; margin: 0; font: 13px/1.4 -apple-system, Roboto, Arial, sans-serif; color: #333; }
+      header { background: #fff159; padding: 12px 14px; font-weight: 700; }
+      main { padding: 14px; }
+      label { display: block; margin: 10px 0 4px; font-weight: 600; }
+      input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 5px; }
+      .hint { color: #888; font-size: 11px; margin-top: 3px; }
+      button { margin-top: 14px; width: 100%; padding: 9px; background: #3483fa; color: #fff; border: 0; border-radius: 6px; font-weight: 700; cursor: pointer; }
+      #status { text-align: center; color: #00a650; font-weight: 600; height: 16px; margin-top: 8px; }
+    </style>
+  </head>
+  <body>
+    <header>Score Bayesiano — configuração</header>
+    <main>
+      <label for="priorMean">Média global (m)</label>
+      <input id="priorMean" type="number" step="0.1" min="0" max="5" />
+      <div class="hint">Nota "esperada" de um produto qualquer do nicho. Padrão 4.3.</div>
+
+      <label for="priorWeight">Peso do prior (C)</label>
+      <input id="priorWeight" type="number" step="1" min="1" />
+      <div class="hint">Quantas avaliações para "confiar" na nota. Maior = mais rígido. Padrão 30.</div>
+
+      <button id="save">Salvar</button>
+      <div id="status"></div>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

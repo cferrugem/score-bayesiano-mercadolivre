@@ -1,0 +1,19 @@
+# Dependências
+node_modules/
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editores
+.vscode/
+.idea/
+
+# Páginas de referência do Mercado Livre (contêm dados pessoais — nunca versionar)
+*.txt
+mercadolivre.txt
+detalhe_mercado_livre.txt
+
+# Pacotes gerados da extensão
+*.zip
