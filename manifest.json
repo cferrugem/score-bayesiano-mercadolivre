@@ -24,7 +24,7 @@
         "https://lista.mercadolivre.com.br/*",
         "https://*.mercadolivre.com.br/*"
       ],
-      "js": ["src/bayes.js", "src/content.js"],
+      "js": ["src/bayes.js", "src/pages.js", "src/content.js"],
       "css": ["src/styles.css"],
       "run_at": "document_idle"
     }

@@ -89,8 +89,63 @@ async function fetchReviews(productUrl) {
   return parseDetail(html);
 }
 
+// ---- colheita de páginas seguintes -----------------------------------------
+// Abre a página numa aba inativa, espera o content script de lá devolver os cards já
+// renderizados e fecha a aba. É o único jeito de obter cards corretos: fetch traz HTML
+// sem grid e o app do ML não renderiza dentro de iframe (ver src/pages.js).
+const HARVEST_TIMEOUT_MS = 20000;
+const harvests = new Map(); // tabId -> { resolve, reject, timer }
+
+function closeTab(tabId) {
+  if (tabId != null) chrome.tabs.remove(tabId).catch(() => {});
+}
+
+function settleHarvest(tabId, fn, arg) {
+  const pend = harvests.get(tabId);
+  if (!pend) return false;
+  clearTimeout(pend.timer);
+  harvests.delete(tabId);
+  pend[fn](arg);
+  return true;
+}
+
+async function harvestPage(url) {
+  const tab = await chrome.tabs.create({ url, active: false });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      harvests.delete(tab.id);
+      closeTab(tab.id);
+      reject(new Error("A página demorou demais para carregar."));
+    }, HARVEST_TIMEOUT_MS);
+    harvests.set(tab.id, { resolve, reject, timer });
+  });
+}
+
+// Se o usuário fechar a aba na mão, não deixa a promessa pendurada até o timeout.
+chrome.tabs.onRemoved.addListener((tabId) => {
+  settleHarvest(tabId, "reject", new Error("A aba foi fechada antes de terminar."));
+});
+
 // ---- mensageria ------------------------------------------------------------
-chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === "harvested") {
+    const tabId = sender.tab?.id;
+    settleHarvest(tabId, "resolve", msg.cards || []);
+    closeTab(tabId);
+    return false;
+  }
+
+  if (msg?.type === "loadPage") {
+    (async () => {
+      try {
+        sendResponse({ ok: true, cards: await harvestPage(msg.url) });
+      } catch (err) {
+        sendResponse({ ok: false, error: String(err?.message || err) });
+      }
+    })();
+    return true; // resposta assíncrona
+  }
+
   if (msg?.type !== "getReviews") return false;
   (async () => {
     try {

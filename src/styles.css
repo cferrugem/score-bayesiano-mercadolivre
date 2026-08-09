@@ -71,7 +71,7 @@
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px 20px;
+  gap: 10px 16px;
   padding: 11px 16px 12px;
   margin: 0 0 14px;
   background: var(--mls-ink);
@@ -81,11 +81,11 @@
   font-family: -apple-system, "Proxima Nova", Roboto, Arial, sans-serif;
 }
 
-/* identidade: curva normal + leitura ao vivo do que já foi pontuado */
-.mlscore-bar__id {
+/* identidade (curva normal + leitura ao vivo) e a ação de somar página, num bloco só */
+.mlscore-bar__left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   margin-right: auto;
 }
 .mlscore-bar__mark {
@@ -115,18 +115,20 @@
   color: #6f7684;
 }
 
+/* Os critérios nunca empilham: em coluna estreita a faixa rola na horizontal. A barra é
+   fixa ao rolar, então deixá-la crescer para três linhas comeria a tela de resultados. */
 .mlscore-bar__sort {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: 2px;
 }
-.mlscore-bar__legend {
-  font: 600 11px/1 inherit;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--mls-muted);
-  margin-right: 4px;
+.mlscore-bar__sort::-webkit-scrollbar {
+  display: none;
 }
 .mlscore-bar__rule {
   width: 1px;
@@ -144,7 +146,7 @@
   background: var(--mls-ink-soft);
   border: 1px solid var(--mls-line);
   border-radius: 999px;
-  padding: 8px 13px;
+  padding: 8px 12px;
   margin: 0;
   cursor: pointer;
   white-space: nowrap;
@@ -163,6 +165,47 @@
 #mlscore-toolbar .mlscore-pill:focus-visible {
   outline: 2px solid var(--mls-accent);
   outline-offset: 2px;
+}
+
+/* ação de somar a próxima página. Mesma forma dos pills para não destoar, mas sem
+   preenchimento: o amarelo da barra significa "ordenação ativa", e isto é ação, não estado. */
+#mlscore-toolbar .mlscore-more {
+  appearance: none;
+  -webkit-appearance: none;
+  font: 700 12.5px/1 inherit;
+  color: var(--mls-text);
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  border-radius: 999px;
+  padding: 8px 14px;
+  margin: 0;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.14s ease, border-color 0.14s ease;
+}
+#mlscore-toolbar .mlscore-more:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.45);
+}
+#mlscore-toolbar .mlscore-more:disabled {
+  color: var(--mls-muted);
+  border-color: var(--mls-line);
+  cursor: default;
+}
+#mlscore-toolbar .mlscore-more:focus-visible {
+  outline: 2px solid var(--mls-accent);
+  outline-offset: 2px;
+}
+.mlscore-bar__meter--warn {
+  color: #ffbdb0 !important;
+}
+
+/* páginas já mescladas na tela: o número continua visível como referência, mas não
+   leva a lugar nenhum — o conteúdo dele já está acima */
+.mlscore-page--loaded .andes-pagination__link {
+  cursor: default;
+  text-decoration: line-through;
+  opacity: 0.55;
 }
 
 /* fio de progresso: preenche conforme os detalhes dos anúncios chegam */

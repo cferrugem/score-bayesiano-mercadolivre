@@ -7,9 +7,17 @@
 // o escopo léxico, então `const { bayesianScore100 } = ...` colidiria com a função homônima
 // declarada em bayes.js ("Identifier already declared") e derrubaria todo o script.
 const ML = self.MLScore;
+const MLP = self.MLPages;
 
 const CARD_SEL = "li.ui-search-layout__item";
 const PROCESSED = "mlscoreDone";
+
+// Quantas páginas da busca podem ficar na mesma tela (a atual + as carregadas).
+const MAX_PAGES = 3;
+
+// Páginas já presentes no grid, em ordem de chegada.
+const loadedPages = [];
+let loadingPage = false;
 
 // Config do usuário (popup), com fallback nos padrões.
 let CFG = { ...ML.BAYES_DEFAULTS };
@@ -242,6 +250,118 @@ function applySort(mode) {
     .forEach((li) => list.appendChild(li));
 }
 
+// ---- páginas seguintes -----------------------------------------------------
+// MLB id do card, para não repetir anúncio: cada página traz ~60 <li> para 48 produtos,
+// e os slots de anúncio extras podem repetir itens que já estão na tela.
+function cardMlbId(card) {
+  const prod = resolveProduct(getTitleAnchor(card));
+  return prod ? prod.mlbId : null;
+}
+
+// Próxima página a carregar, ou null se não há mais (ou se já bateu o limite).
+function nextPageNumber() {
+  if (!MLP || loadedPages.length >= MAX_PAGES) return null;
+  const { urls, last } = MLP.pagination();
+  const next = loadedPages[loadedPages.length - 1] + 1;
+  return next <= last && urls[String(next)] ? next : null;
+}
+
+function appendCards(htmls) {
+  const grid = document.querySelector("ol.ui-search-layout");
+  if (!grid) return 0;
+
+  const seen = new Set();
+  document.querySelectorAll(CARD_SEL).forEach((c) => {
+    const id = cardMlbId(c);
+    if (id) seen.add(id);
+  });
+
+  const frag = document.createDocumentFragment();
+  let added = 0;
+  for (const html of htmls) {
+    // Um <div> do documento vivo, e NÃO um <template>: o conteúdo de template pertence
+    // a um documento inerte, e as imagens dos cards (loading="lazy") nunca chegam a
+    // selecionar fonte — ficam com currentSrc vazio mesmo depois de inseridas na página.
+    const host = document.createElement("div");
+    host.innerHTML = html.trim();
+    const li = host.firstElementChild;
+    if (!li) continue;
+    const id = cardMlbId(li);
+    if (id && seen.has(id)) continue;
+    if (id) seen.add(id);
+    frag.appendChild(li);
+    added++;
+  }
+  // O MutationObserver cuida do resto: scanCards() pontua os novos cards e
+  // refreshValueBadges() renormaliza o custo-benefício sobre o conjunto inteiro.
+  grid.appendChild(frag);
+  return added;
+}
+
+async function loadNextPage() {
+  const page = nextPageNumber();
+  if (page == null || loadingPage) return;
+  loadingPage = true;
+  syncToolbar();
+
+  const { urls } = MLP.pagination();
+  try {
+    const resp = await chrome.runtime.sendMessage({
+      type: "loadPage",
+      url: urls[String(page)] + MLP.HARVEST_HASH,
+    });
+    if (!resp?.ok) throw new Error(resp?.error || "Não foi possível carregar a página.");
+    const added = appendCards(resp.cards);
+    if (!added) throw new Error("A página não trouxe anúncios novos.");
+    loadedPages.push(page);
+    rewritePagination();
+  } catch (err) {
+    barMessage(String(err?.message || err));
+  } finally {
+    loadingPage = false;
+    syncToolbar();
+  }
+}
+
+// Reescreve a paginação nativa do rodapé: as páginas que já estão na tela viram
+// marcadores inertes e os links seguem a partir da primeira ainda não carregada.
+// Recria os <li> em vez de editá-los — assim os handlers do ML saem junto com os
+// nós antigos e os nossos href passam a valer.
+function rewritePagination() {
+  const ul = document.querySelector("ul.andes-pagination");
+  if (!ul || !MLP) return;
+  const { urls, last } = MLP.pagination();
+  if (!Object.keys(urls).length) return;
+
+  const loaded = new Set(loadedPages);
+  const nums = Object.keys(urls)
+    .map(Number)
+    .sort((a, b) => a - b);
+
+  const items = nums.map((n) => {
+    if (loaded.has(n)) {
+      return (
+        '<li class="andes-pagination__button andes-pagination__button--disabled mlscore-page--loaded">' +
+        `<span class="andes-pagination__link" title="Página ${n} já está acima nesta tela">${n}</span></li>`
+      );
+    }
+    return (
+      '<li class="andes-pagination__button">' +
+      `<a class="andes-pagination__link" href="${urls[String(n)]}" aria-label="Vá para a página ${n}">${n}</a></li>`
+    );
+  });
+
+  const after = nums.find((n) => !loaded.has(n) && n > Math.max(...loadedPages));
+  if (after && after <= last) {
+    items.push(
+      '<li class="andes-pagination__button andes-pagination__button--next">' +
+        `<a class="andes-pagination__link" href="${urls[String(after)]}" title="Seguinte">` +
+        '<span class="andes-pagination__arrow-title">Seguinte</span></a></li>'
+    );
+  }
+  ul.innerHTML = items.join("");
+}
+
 // Critérios na ordem em que aparecem na barra. `rule: true` abre um grupo novo
 // (mérito calculado | preço bruto) — a divisória diz algo real sobre os dados.
 const SORT_BUTTONS = [
@@ -270,14 +390,20 @@ function injectToolbar() {
   const bar = document.createElement("div");
   bar.id = "mlscore-toolbar";
   bar.innerHTML =
-    '<div class="mlscore-bar__id">' +
+    '<div class="mlscore-bar__left">' +
     CURVE_SVG +
     '<div class="mlscore-bar__idtext">' +
     '<span class="mlscore-bar__name">Score bayesiano</span>' +
     '<span class="mlscore-bar__meter" id="mlscore-meter">lendo anúncios…</span>' +
-    "</div></div>" +
+    "</div>" +
+    // O botão fica junto do bloco de identidade, não solto: com três blocos irmãos a
+    // barra empilha em três linhas em coluna estreita, e ela é fixa ao rolar.
+    '<button type="button" class="mlscore-more" id="mlscore-more" hidden></button>' +
+    "</div>" +
+    // Sem rótulo "Ordenar por": ele custava ~93px e empurrava a barra para duas linhas na
+    // coluna de 1184px. Os próprios critérios dizem que são ordenação (o par Menor/Maior
+    // preço não deixa dúvida) e o aria-label mantém a leitura por leitor de tela.
     '<div class="mlscore-bar__sort" role="group" aria-label="Ordenar resultados por">' +
-    '<span class="mlscore-bar__legend">Ordenar por</span>' +
     SORT_BUTTONS.map(
       (b) =>
         (b.rule ? '<span class="mlscore-bar__rule" aria-hidden="true"></span>' : "") +
@@ -291,7 +417,22 @@ function injectToolbar() {
   bar.querySelectorAll(".mlscore-pill").forEach((btn) => {
     btn.addEventListener("click", () => applySort(btn.dataset.mode));
   });
+  bar.querySelector("#mlscore-more").addEventListener("click", loadNextPage);
   syncToolbar();
+}
+
+// Mensagem passageira na linha do contador (falha ao carregar página, p. ex.).
+let messageTimer = null;
+function barMessage(text) {
+  const meter = document.getElementById("mlscore-meter");
+  if (!meter) return;
+  meter.textContent = text;
+  meter.classList.add("mlscore-bar__meter--warn");
+  clearTimeout(messageTimer);
+  messageTimer = setTimeout(() => {
+    meter.classList.remove("mlscore-bar__meter--warn");
+    syncToolbar();
+  }, 4000);
 }
 
 // Estado dos pills + leitura de progresso. O contador não é enfeite: enquanto os
@@ -311,11 +452,28 @@ function syncToolbar() {
   cards.forEach((c) => {
     if (c.dataset.mlscore !== undefined) done++;
   });
+  // Botão de próxima página: some quando não há mais o que somar.
+  const more = bar.querySelector("#mlscore-more");
+  const next = nextPageNumber();
+  if (loadingPage) {
+    more.hidden = false;
+    more.disabled = true;
+    more.textContent = "Carregando…";
+  } else if (next == null) {
+    more.hidden = true;
+  } else {
+    more.hidden = false;
+    more.disabled = false;
+    more.textContent = `+ Página ${next}`;
+    more.title = `Soma os anúncios da página ${next} a esta tela`;
+  }
+
   const meter = bar.querySelector("#mlscore-meter");
   const fill = bar.querySelector("#mlscore-progress");
-  if (!total) return;
+  if (!total || meter.classList.contains("mlscore-bar__meter--warn")) return;
+  const pages = loadedPages.length > 1 ? ` · páginas ${loadedPages[0]}–${loadedPages[loadedPages.length - 1]}` : "";
   meter.textContent =
-    done < total ? `${done} de ${total} anúncios pontuados` : `${total} anúncios pontuados`;
+    (done < total ? `${done} de ${total} anúncios pontuados` : `${total} anúncios pontuados`) + pages;
   bar.classList.toggle("mlscore-bar--ready", done >= total);
   fill.style.width = `${Math.round((done / total) * 100)}%`;
 }
@@ -326,14 +484,19 @@ async function init() {
     const { config } = await chrome.storage.local.get("config");
     if (config) CFG = { ...ML.BAYES_DEFAULTS, ...config };
   } catch (_) {}
+  loadedPages.push(MLP ? MLP.pagination().selected : 1);
   injectToolbar();
   scanCards();
 }
 
-const observer = new MutationObserver(() => {
-  injectToolbar();
-  scanCards();
-});
-observer.observe(document.documentElement, { childList: true, subtree: true });
+// Numa aba de colheita nada disso roda: ela existe só para renderizar e entregar os
+// cards (pages.js cuida). Injetar a barra e pontuar ali dobraria os fetches de detalhe.
+if (!MLP || !MLP.isHarvest) {
+  const observer = new MutationObserver(() => {
+    injectToolbar();
+    scanCards();
+  });
+  observer.observe(document.documentElement, { childList: true, subtree: true });
 
-init();
+  init();
+}

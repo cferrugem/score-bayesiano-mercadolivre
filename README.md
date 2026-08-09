@@ -48,8 +48,30 @@ quantidade vendida). Então, para cada card, a extensão:
    Avaliações, Vendas | Menor preço, Maior preço. Ela também mostra quantos anúncios já
    foram pontuados — enquanto o contador não fecha, ordenar por qualidade, custo-benefício,
    avaliações ou vendas usa uma página incompleta.
+5. um botão **"+ Página N"** que soma a próxima página de resultados à mesma tela, até
+   três páginas. A ordenação e o custo-benefício passam a valer sobre o conjunto inteiro,
+   e a paginação do rodapé é reescrita para seguir a partir da primeira página ainda não
+   carregada.
 
 Os resultados ficam em cache por 24h (`chrome.storage.local`).
+
+### Por que "+ Página N" abre uma aba
+
+O grid de resultados do Mercado Livre é renderizado no cliente, e não há atalho para isso:
+
+| tentativa | resultado |
+| --- | --- |
+| `fetch` + `DOMParser` | 0 cards — o HTML cru não traz o grid, nem o da página já aberta |
+| iframe (oculto ou visível) | 0 cards — com `window.top !== self` o app só monta o cabeçalho |
+| `api.mercadolibre.com` | 403 |
+
+Uma aba de verdade, mesmo inativa e com `visibilityState: "hidden"`, renderiza tudo. Então
+o botão abre a página seguinte numa aba em segundo plano, o content script de lá devolve os
+cards já prontos e a aba se fecha. Os cards são os nativos do ML, não uma reconstrução.
+
+Cada página traz ~60 `<li>` para 48 produtos, e os slots de anúncio repetem itens — na
+medição, **20 dos 60** cards da página 2 já estavam na página 1. Por isso o merge deduplica
+por MLB id.
 
 ## Instalação (modo desenvolvedor)
 
@@ -70,8 +92,10 @@ extensao/
 ├─ manifest.json
 ├─ src/
 │  ├─ bayes.js        # fórmula do score (content script)
-│  ├─ content.js      # lê cards, injeta badges, ordena
+│  ├─ pages.js        # URLs das páginas + modo colheita (aba em segundo plano)
+│  ├─ content.js      # lê cards, injeta badges, ordena, funde páginas
 │  ├─ background.js   # fetch da página de detalhe + parsing (regex) + cache/fila
+│  │                  # + abre/fecha a aba de colheita
 │  └─ styles.css
 └─ popup/             # configuração de m e C
 ```
