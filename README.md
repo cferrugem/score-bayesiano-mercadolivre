@@ -82,5 +82,3 @@ extensao/
   contabiliza um clique de anúncio. Melhoria futura: construir a URL canônica a partir do MLB id.
 - Baixar N páginas de detalhe é mais lento e pode sofrer *rate limit*; a fila usa concorrência 4
   com respiro de 120 ms.
-- Ainda **só Mercado Livre**. Amazon exige capturar as páginas equivalentes e escrever um adaptador.
-```
