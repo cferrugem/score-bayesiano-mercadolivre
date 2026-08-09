@@ -16,7 +16,6 @@ let CFG = { ...ML.BAYES_DEFAULTS };
 
 // Referências aos badges assíncronos de cada card (não cabem em dataset).
 const valueBadges = new WeakMap();
-const soldBadges = new WeakMap();
 const reviewsBadges = new WeakMap();
 
 // ---- extração de dados do card ---------------------------------------------
@@ -104,17 +103,11 @@ function renderReviews(card, count) {
 }
 
 // Vendas — vem do DETALHE do anúncio (não da busca, que agrega o catálogo e engana).
+// Sem badge: o próprio card do ML já mostra "+N vendidos". Guarda só o dado p/ ordenar.
 function renderSold(card, sold) {
-  const badge = soldBadges.get(card);
-  if (!badge) return;
-  badge.classList.remove("mlscore-sold--loading");
   if (sold && sold.num > 0) {
-    badge.textContent = `🛒 ${sold.text}`;
-    badge.title = `${sold.num.toLocaleString("pt-BR")} vendidos deste anúncio (aprox.)`;
     card.dataset.mlsold = String(sold.num);
   } else {
-    badge.textContent = "🛒 —";
-    badge.title = "Este anúncio não informa a quantidade vendida.";
     delete card.dataset.mlsold;
   }
 }
@@ -144,6 +137,7 @@ function refreshValueBadges() {
   });
   // Se o usuário escolheu uma ordem que depende de dados assíncronos, reaplica.
   if (["quality", "value", "reviews", "sold"].includes(currentSort)) applySort(currentSort);
+  else syncToolbar();
 }
 
 // ---- processamento de um card ----------------------------------------------
@@ -165,13 +159,11 @@ function processCard(card) {
   const quality = makeBadge("mlscore-badge mlscore-badge--loading", "qualidade…");
   const value = makeBadge("mlscore-cb mlscore-cb--loading", "C/B…");
   const reviewsBadge = makeBadge("mlscore-reviews mlscore-reviews--loading", "⭐…");
-  const soldBadge = makeBadge("mlscore-sold mlscore-sold--loading", "🛒…");
-  wrap.append(quality, value, reviewsBadge, soldBadge);
+  wrap.append(quality, value, reviewsBadge);
   host.prepend(wrap);
 
   valueBadges.set(card, value);
   reviewsBadges.set(card, reviewsBadge);
-  soldBadges.set(card, soldBadge);
   if (price != null) card.dataset.mlprice = String(price);
 
   if (!prod) {
@@ -234,6 +226,7 @@ let currentSort = "rel";
 
 function applySort(mode) {
   currentSort = mode;
+  syncToolbar();
   const { attr, asc } = SORT_MODES[mode] || SORT_MODES.rel;
   const list = document.querySelector("ol.ui-search-layout, ol.ui-search-layout--grid");
   if (!list) return;
@@ -249,30 +242,82 @@ function applySort(mode) {
     .forEach((li) => list.appendChild(li));
 }
 
+// Critérios na ordem em que aparecem na barra. `rule: true` abre um grupo novo
+// (mérito calculado | preço bruto) — a divisória diz algo real sobre os dados.
+const SORT_BUTTONS = [
+  { mode: "rel", label: "Relevância", hint: "Ordem original do Mercado Livre" },
+  { mode: "quality", label: "Qualidade", hint: "Score bayesiano da nota + nº de avaliações" },
+  { mode: "value", label: "Custo-benefício", hint: "Qualidade por real, normalizado nesta página" },
+  { mode: "reviews", label: "Avaliações", hint: "Nº exato de avaliações do anúncio" },
+  { mode: "sold", label: "Vendas", hint: "Quantidade vendida deste anúncio" },
+  { mode: "price-asc", label: "Menor preço", hint: "Preço atual, do mais barato", rule: true },
+  { mode: "price-desc", label: "Maior preço", hint: "Preço atual, do mais caro" },
+];
+
+// Curva normal: o mark da barra. É a única marca gráfica — o resto é tipografia.
+const CURVE_SVG =
+  '<svg class="mlscore-bar__mark" viewBox="0 0 18 16" aria-hidden="true">' +
+  '<path d="M1 13.5C4 13.5 4.6 2.5 9 2.5s5 11 8 11" fill="none" stroke="currentColor" ' +
+  'stroke-width="1.8" stroke-linecap="round"/></svg>';
+
 function injectToolbar() {
   if (document.getElementById("mlscore-toolbar")) return;
-  const anchor =
-    document.querySelector(".ui-search-search-result") ||
-    document.querySelector(".ui-search-results");
-  if (!anchor) return;
+  // A coluna de resultados — NÃO a sidebar, que tem 260px e espreme a barra.
+  const results = document.querySelector(".ui-search-results");
+  const grid = results && results.querySelector("ol.ui-search-layout");
+  if (!results || !grid) return;
+
   const bar = document.createElement("div");
   bar.id = "mlscore-toolbar";
   bar.innerHTML =
-    '<span class="mlscore-toolbar__title">Score bayesiano</span>' +
-    '<label class="mlscore-toolbar__label">Ordenar por' +
-    '<select id="mlscore-order" class="mlscore-toolbar__select">' +
-    '<option value="rel">Relevância (padrão)</option>' +
-    '<option value="quality">Qualidade</option>' +
-    '<option value="value">Custo-benefício</option>' +
-    '<option value="reviews">Mais avaliados</option>' +
-    '<option value="sold">Mais vendidos</option>' +
-    '<option value="price-asc">Menor preço</option>' +
-    '<option value="price-desc">Maior preço</option>' +
-    "</select></label>";
-  anchor.prepend(bar);
-  const select = bar.querySelector("#mlscore-order");
-  select.value = currentSort;
-  select.addEventListener("change", (e) => applySort(e.target.value));
+    '<div class="mlscore-bar__id">' +
+    CURVE_SVG +
+    '<div class="mlscore-bar__idtext">' +
+    '<span class="mlscore-bar__name">Score bayesiano</span>' +
+    '<span class="mlscore-bar__meter" id="mlscore-meter">lendo anúncios…</span>' +
+    "</div></div>" +
+    '<div class="mlscore-bar__sort" role="group" aria-label="Ordenar resultados por">' +
+    '<span class="mlscore-bar__legend">Ordenar por</span>' +
+    SORT_BUTTONS.map(
+      (b) =>
+        (b.rule ? '<span class="mlscore-bar__rule" aria-hidden="true"></span>' : "") +
+        `<button type="button" class="mlscore-pill" data-mode="${b.mode}" title="${b.hint}">${b.label}</button>`
+    ).join("") +
+    "</div>" +
+    '<div class="mlscore-bar__progress"><i id="mlscore-progress"></i></div>';
+
+  results.insertBefore(bar, grid);
+
+  bar.querySelectorAll(".mlscore-pill").forEach((btn) => {
+    btn.addEventListener("click", () => applySort(btn.dataset.mode));
+  });
+  syncToolbar();
+}
+
+// Estado dos pills + leitura de progresso. O contador não é enfeite: enquanto os
+// dados chegam do detalhe, ordenar por qualidade/C-B usa página incompleta.
+function syncToolbar() {
+  const bar = document.getElementById("mlscore-toolbar");
+  if (!bar) return;
+  bar.querySelectorAll(".mlscore-pill").forEach((btn) => {
+    const on = btn.dataset.mode === currentSort;
+    btn.classList.toggle("mlscore-pill--on", on);
+    btn.setAttribute("aria-pressed", String(on));
+  });
+
+  const cards = document.querySelectorAll(CARD_SEL);
+  const total = cards.length;
+  let done = 0;
+  cards.forEach((c) => {
+    if (c.dataset.mlscore !== undefined) done++;
+  });
+  const meter = bar.querySelector("#mlscore-meter");
+  const fill = bar.querySelector("#mlscore-progress");
+  if (!total) return;
+  meter.textContent =
+    done < total ? `${done} de ${total} anúncios pontuados` : `${total} anúncios pontuados`;
+  bar.classList.toggle("mlscore-bar--ready", done >= total);
+  fill.style.width = `${Math.round((done / total) * 100)}%`;
 }
 
 // ---- inicialização + observação de novos cards -----------------------------

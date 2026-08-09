@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Score Bayesiano">
+  <!-- Fonte da verdade da geometria: icons/build-icons.js gera os PNGs a partir
+       destes mesmos números. Alterou aqui, rode `node icons/build-icons.js`. -->
+  <!-- Fundo: o amarelo do próprio Mercado Livre. -->
+  <rect width="128" height="128" rx="28" fill="#FFE600"/>
+  <!-- A curva é assimétrica de propósito: o score bayesiano puxa a nota crua para
+       baixo, em direção ao prior, então a cauda longa fica à esquerda e o pico à direita. -->
+  <path d="M13 90 C53 90 60 39 78 39 C94 39 101 90 115 90 Z" fill="#16181D"/>
+  <!-- Eixo: faz a forma ler como distribuição, não como morro. -->
+  <rect x="13" y="86" width="102" height="8" rx="4" fill="#16181D"/>
+</svg>

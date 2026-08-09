@@ -37,11 +37,15 @@ quantidade vendida). Então, para cada card, a extensão:
      score de qualidade;
    - **⭐ avaliações** — o número **exato** de avaliações (ex.: `5.111`), lido da **página de
      detalhe** (a busca não expõe esse número);
-   - **🛒 vendas** — a quantidade vendida em faixa (ex.: `+10mil`), lida do **subtítulo do
-     detalhe** — não da busca, cujo número costuma agregar o catálogo inteiro (todos os
-     vendedores) e engana.
-4. um **menu "Ordenar por"** reordena os resultados: Relevância (padrão), Qualidade,
-   Custo-benefício, Mais avaliados, Mais vendidos, Menor preço, Maior preço.
+   As **vendas** (quantidade vendida em faixa, ex.: `+10mil`) também são lidas do **subtítulo
+   do detalhe** — não da busca, cujo número costuma agregar o catálogo inteiro (todos os
+   vendedores) e engana. Não viram badge (o card do ML já mostra "+N vendidos"), mas
+   alimentam a ordenação.
+4. uma **barra de controle** no topo da coluna de resultados, fixa ao rolar, com todos os
+   critérios de ordenação visíveis: Relevância (padrão), Qualidade, Custo-benefício,
+   Avaliações, Vendas | Menor preço, Maior preço. Ela também mostra quantos anúncios já
+   foram pontuados — enquanto o contador não fecha, ordenar por qualidade, custo-benefício,
+   avaliações ou vendas usa uma página incompleta.
 
 Os resultados ficam em cache por 24h (`chrome.storage.local`).
 
