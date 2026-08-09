@@ -5,10 +5,6 @@
 Extensão de navegador (Chrome/Edge, Manifest V3) que calcula um **score bayesiano** para os
 produtos da busca do Mercado Livre e permite ordenar os resultados por ele.
 
-> O logo é a curva do próprio score: assimétrica, com a cauda longa à esquerda e o pico à
-> direita — é o formato que a distribuição toma quando o encolhimento puxa a nota crua para
-> baixo, em direção ao prior.
-
 ## Por que "bayesiano"?
 
 A nota simples engana: um produto com **5,0 e 3 avaliações** aparenta ser melhor que um com
