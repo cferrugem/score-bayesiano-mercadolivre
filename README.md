@@ -58,7 +58,10 @@ Os resultados ficam em cache por 24h (`chrome.storage.local`).
 3. **Carregar sem compactação** → selecione a pasta `extensao/`.
 4. Abra uma busca, ex.: <https://lista.mercadolivre.com.br/calca>.
 
-Ajuste `m` e `C` no ícone da extensão (popup).
+Ajuste `m` e `C` no ícone da extensão. O popup mostra, ao vivo, como três anúncios de
+exemplo são pontuados e reordenados a cada mudança — arraste **Avaliações para confiar**
+até o mínimo e veja o "5,0 com 3 avaliações" saltar para o primeiro lugar, que é
+exatamente o erro que o score existe para corrigir.
 
 ## Estrutura
 

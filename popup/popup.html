@@ -2,31 +2,234 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
+    <title>Score Bayesiano</title>
     <style>
-      body { width: 260px; margin: 0; font: 13px/1.4 -apple-system, Roboto, Arial, sans-serif; color: #333; }
-      header { background: #fff159; padding: 12px 14px; font-weight: 700; }
-      main { padding: 14px; }
-      label { display: block; margin: 10px 0 4px; font-weight: 600; }
-      input { width: 100%; box-sizing: border-box; padding: 6px 8px; border: 1px solid #ccc; border-radius: 5px; }
-      .hint { color: #888; font-size: 11px; margin-top: 3px; }
-      button { margin-top: 14px; width: 100%; padding: 9px; background: #3483fa; color: #fff; border: 0; border-radius: 6px; font-weight: 700; cursor: pointer; }
-      #status { text-align: center; color: #00a650; font-weight: 600; height: 16px; margin-top: 8px; }
+      /* Mesmos tokens da barra injetada na busca — popup e página são um produto só. */
+      :root {
+        --ink: #16181d;
+        --ink-soft: #23272f;
+        --accent: #ffe600;
+        --paper: #fff;
+        --wash: #f4f5f7;
+        --line: #e4e7ec;
+        --text: #1d2027;
+        --muted: #737b8a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        width: 328px;
+        margin: 0;
+        background: var(--paper);
+        color: var(--text);
+        font: 13px/1.45 -apple-system, "Proxima Nova", Roboto, Arial, sans-serif;
+      }
+
+      /* cabeçalho */
+      header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 13px 16px;
+        background: var(--ink);
+      }
+      header img { width: 26px; height: 26px; border-radius: 6px; }
+      .h-name {
+        font-weight: 700;
+        font-size: 12px;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: #edeff4;
+      }
+      .h-sub { font-size: 11px; color: #939ba9; margin-top: 3px; }
+
+      main { padding: 14px 16px 6px; }
+
+      /* controles */
+      .field + .field { margin-top: 17px; }
+      .f-top {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 9px;
+      }
+      .f-label { font-weight: 700; font-size: 12.5px; }
+      .f-value {
+        font-weight: 700;
+        font-size: 15px;
+        font-variant-numeric: tabular-nums;
+        background: var(--accent);
+        color: var(--ink);
+        border-radius: 5px;
+        padding: 2px 8px;
+        min-width: 44px;
+        text-align: center;
+      }
+
+      input[type="range"] {
+        -webkit-appearance: none;
+        appearance: none;
+        display: block;
+        width: 100%;
+        height: 4px;
+        margin: 0;
+        border-radius: 2px;
+        cursor: pointer;
+        background:
+          linear-gradient(var(--ink) 0 0) 0 / var(--fill, 0%) 100% no-repeat,
+          var(--line);
+      }
+      input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none;
+        appearance: none;
+        width: 17px;
+        height: 17px;
+        border-radius: 50%;
+        background: var(--ink);
+        border: 3px solid var(--paper);
+        box-shadow: 0 1px 4px rgba(15, 18, 24, 0.45);
+      }
+      input[type="range"]:focus-visible {
+        outline: 2px solid var(--ink);
+        outline-offset: 5px;
+      }
+      .f-scale {
+        display: flex;
+        justify-content: space-between;
+        margin-top: 6px;
+        font-size: 10.5px;
+        font-variant-numeric: tabular-nums;
+        color: var(--muted);
+      }
+      .f-hint { margin-top: 7px; font-size: 11.5px; color: var(--muted); }
+
+      /* prévia: o mesmo cálculo que roda na busca, em 3 anúncios de exemplo */
+      .preview {
+        margin: 20px 0 0;
+        padding: 13px 16px 12px;
+        background: var(--wash);
+        border-top: 1px solid var(--line);
+      }
+      .p-title {
+        font-weight: 700;
+        font-size: 10.5px;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      .p-note { font-size: 11px; color: var(--muted); margin: 3px 0 11px; }
+      .p-row {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 6px 0;
+        transition: transform 0.25s ease;
+      }
+      .p-rank {
+        font-weight: 700;
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+        color: var(--muted);
+        width: 12px;
+      }
+      .p-desc { flex: 1; font-size: 12px; font-variant-numeric: tabular-nums; }
+      .p-desc b { font-weight: 700; }
+      .p-desc span { color: var(--muted); }
+      .p-score {
+        font-weight: 700;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        color: #fff;
+        border-radius: 5px;
+        padding: 3px 8px;
+        min-width: 46px;
+        text-align: center;
+      }
+
+      /* ações */
+      footer { display: flex; align-items: center; gap: 10px; padding: 12px 16px 10px; }
+      button {
+        font: inherit;
+        font-weight: 700;
+        border-radius: 7px;
+        cursor: pointer;
+        transition: background 0.14s ease, color 0.14s ease;
+      }
+      #save {
+        flex: 1;
+        padding: 10px;
+        font-size: 13px;
+        background: var(--accent);
+        color: var(--ink);
+        border: 1px solid var(--accent);
+      }
+      #save:hover { background: #f5dd00; border-color: #f5dd00; }
+      #reset {
+        padding: 10px 12px;
+        font-size: 12px;
+        background: transparent;
+        color: var(--muted);
+        border: 1px solid var(--line);
+      }
+      #reset:hover { background: var(--wash); color: var(--text); }
+      button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+      #status {
+        min-height: 14px;
+        margin: 0 16px 10px;
+        font-size: 11.5px;
+        font-weight: 600;
+        color: #00893c;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        * { transition: none !important; }
+      }
     </style>
   </head>
   <body>
-    <header>Score Bayesiano — configuração</header>
+    <header>
+      <img src="../icons/logo.svg" alt="" />
+      <div>
+        <div class="h-name">Score bayesiano</div>
+        <div class="h-sub">Como a nota é ajustada</div>
+      </div>
+    </header>
+
     <main>
-      <label for="priorMean">Média global (m)</label>
-      <input id="priorMean" type="number" step="0.1" min="0" max="5" />
-      <div class="hint">Nota "esperada" de um produto qualquer do nicho. Padrão 4.3.</div>
+      <div class="field">
+        <div class="f-top">
+          <label class="f-label" for="priorMean">Nota esperada do nicho</label>
+          <output class="f-value" id="priorMeanOut" for="priorMean"></output>
+        </div>
+        <input id="priorMean" type="range" min="3" max="5" step="0.1" />
+        <div class="f-scale"><span>3,0</span><span>5,0</span></div>
+        <p class="f-hint">A nota que um anúncio qualquer do Mercado Livre costuma ter.</p>
+      </div>
 
-      <label for="priorWeight">Peso do prior (C)</label>
-      <input id="priorWeight" type="number" step="1" min="1" />
-      <div class="hint">Quantas avaliações para "confiar" na nota. Maior = mais rígido. Padrão 30.</div>
-
-      <button id="save">Salvar</button>
-      <div id="status"></div>
+      <div class="field">
+        <div class="f-top">
+          <label class="f-label" for="priorWeight">Avaliações para confiar</label>
+          <output class="f-value" id="priorWeightOut" for="priorWeight"></output>
+        </div>
+        <input id="priorWeight" type="range" min="1" max="200" step="1" />
+        <div class="f-scale"><span>1</span><span>200</span></div>
+        <p class="f-hint">Quantas avaliações um anúncio precisa para a nota dele valer por si só.</p>
+      </div>
     </main>
+
+    <section class="preview">
+      <div class="p-title">Como fica</div>
+      <p class="p-note">Exemplos, na ordem em que a busca os colocaria.</p>
+      <div id="examples"></div>
+    </section>
+
+    <footer>
+      <button id="reset" type="button">Padrão</button>
+      <button id="save" type="button">Salvar</button>
+    </footer>
+    <div id="status" role="status"></div>
+
+    <script src="../src/bayes.js"></script>
     <script src="popup.js"></script>
   </body>
 </html>
