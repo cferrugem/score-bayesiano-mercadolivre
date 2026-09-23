@@ -1,3 +1,10 @@
+/* Uma pilha de fontes só, para badges e barra. `font: 700 12px/1 inherit` — que estava
+   aqui antes — é CSS inválido (inherit não entra no atalho `font`), então a declaração
+   inteira era descartada e os botões caíam na fonte padrão do navegador. */
+:root {
+  --mls-font: -apple-system, BlinkMacSystemFont, "Proxima Nova", Roboto, "Segoe UI", Arial, sans-serif;
+}
+
 .mlscore-wrap {
   display: flex;
   flex-wrap: wrap;
@@ -7,9 +14,9 @@
 .mlscore-badge,
 .mlscore-cb {
   display: inline-block;
-  font: 700 12px/1 -apple-system, Roboto, Arial, sans-serif;
+  font: 700 12px/1 var(--mls-font);
   color: #fff;
-  background: #3483fa;
+  background: #2968c8;
   padding: 4px 8px;
   border-radius: 6px;
   letter-spacing: 0.2px;
@@ -31,7 +38,7 @@
 /* avaliações (nº exato do detalhe): azul claro, distinto de vendas */
 .mlscore-reviews {
   display: inline-block;
-  font: 600 12px/1 -apple-system, Roboto, Arial, sans-serif;
+  font: 600 12px/1 var(--mls-font);
   color: #2968c8;
   background: #e7f0ff;
   padding: 4px 8px;
@@ -39,18 +46,41 @@
   cursor: help;
 }
 .mlscore-reviews--loading {
-  color: #9bb6e0;
+  color: #7d8aa0;
+}
+.mlscore-reviews--empty {
+  color: #646b78;
+  background: #f0f2f5;
 }
 .mlscore-badge--loading {
   background: #eee;
-  color: #666;
-  font-weight: 500;
-}
-.mlscore-badge--error {
-  background: #f0f0f0;
-  color: #999;
+  color: #646b78;
   font-weight: 500;
   box-shadow: none;
+}
+/* carregando: pulsa de leve, para não parecer que travou */
+.mlscore-badge--loading,
+.mlscore-cb--loading,
+.mlscore-reviews--loading {
+  animation: mlscore-pulse 1.2s ease-in-out infinite;
+}
+@keyframes mlscore-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+/* vazio/erro: cinza com contraste legível (o #999 sobre #f0f0f0 ficava em 2,5:1) */
+.mlscore-badge--error,
+.mlscore-cb--empty {
+  background: #f0f2f5;
+  color: #646b78;
+  font-weight: 500;
+  box-shadow: none;
+}
+
+/* abaixo do mínimo de avaliações escolhido no popup */
+li.mlscore-hidden {
+  display: none !important;
 }
 
 /* ---- barra de controle -----------------------------------------------------
@@ -78,7 +108,7 @@
   border-radius: 10px;
   box-shadow: 0 4px 14px rgba(15, 18, 24, 0.22);
   overflow: hidden;
-  font-family: -apple-system, "Proxima Nova", Roboto, Arial, sans-serif;
+  font-family: var(--mls-font);
 }
 
 /* identidade (curva normal + leitura ao vivo) e a ação de somar página, num bloco só */
@@ -100,19 +130,19 @@
   gap: 4px;
 }
 .mlscore-bar__name {
-  font: 700 12px/1 inherit;
+  font: 700 12px/1 var(--mls-font);
   letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--mls-text);
 }
 .mlscore-bar__meter {
-  font: 600 11px/1 inherit;
+  font: 600 11px/1.2 var(--mls-font);
   letter-spacing: 0.03em;
   color: var(--mls-muted);
   font-variant-numeric: tabular-nums;
 }
 #mlscore-toolbar.mlscore-bar--ready .mlscore-bar__meter {
-  color: #6f7684;
+  color: #8a91a0;
 }
 
 /* Os critérios nunca empilham: em coluna estreita a faixa rola na horizontal. A barra é
@@ -130,6 +160,10 @@
 .mlscore-bar__sort::-webkit-scrollbar {
   display: none;
 }
+.mlscore-bar__sort--more {
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 36px), transparent);
+}
 .mlscore-bar__rule {
   width: 1px;
   height: 18px;
@@ -141,7 +175,7 @@
 #mlscore-toolbar .mlscore-pill {
   appearance: none;
   -webkit-appearance: none;
-  font: 600 12.5px/1 inherit;
+  font: 600 12.5px/1 var(--mls-font);
   color: var(--mls-text);
   background: var(--mls-ink-soft);
   border: 1px solid var(--mls-line);
@@ -172,7 +206,7 @@
 #mlscore-toolbar .mlscore-more {
   appearance: none;
   -webkit-appearance: none;
-  font: 700 12.5px/1 inherit;
+  font: 700 12.5px/1 var(--mls-font);
   color: var(--mls-text);
   background: transparent;
   border: 1px solid rgba(255, 255, 255, 0.28);
@@ -233,5 +267,10 @@
   #mlscore-toolbar *,
   #mlscore-toolbar {
     transition: none !important;
+  }
+  .mlscore-badge--loading,
+  .mlscore-cb--loading,
+  .mlscore-reviews--loading {
+    animation: none;
   }
 }

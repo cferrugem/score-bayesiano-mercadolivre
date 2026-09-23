@@ -32,13 +32,13 @@ quantidade vendida). Então, para cada card, a extensão:
 1. lê a nota, o **preço atual** e o link do produto no card;
 2. pede ao *service worker* que **baixe a página de detalhe em segundo plano** (com fila e
    limite de concorrência) e extraia nota + nº de avaliações + distribuição de estrelas;
-3. injeta **quatro badges** no card:
+3. injeta **três badges** no card (slots de publicidade sem produto ficam de fora):
    - **Qualidade** — o score bayesiano (0–100), colorido por faixa;
    - **C/B (custo-benefício)** — qualidade por real, normalizado de 0 a 100 **dentro da
      página** (o melhor negócio da página = 100). É um eixo separado: preço não contamina o
      score de qualidade;
-   - **⭐ avaliações** — o número **exato** de avaliações (ex.: `5.111`), lido da **página de
-     detalhe** (a busca não expõe esse número);
+   - **avaliações** — o número **exato** de avaliações (ex.: `5.111 aval.`), lido da
+     **página de detalhe** (a busca não expõe esse número);
    As **vendas** (quantidade vendida em faixa, ex.: `+10mil`) também são lidas do **subtítulo
    do detalhe** — não da busca, cujo número costuma agregar o catálogo inteiro (todos os
    vendedores) e engana. Não viram badge (o card do ML já mostra "+N vendidos"), mas
@@ -47,13 +47,17 @@ quantidade vendida). Então, para cada card, a extensão:
    critérios de ordenação visíveis: Relevância (padrão), Qualidade, Custo-benefício,
    Avaliações, Vendas | Menor preço, Maior preço. Ela também mostra quantos anúncios já
    foram pontuados — enquanto o contador não fecha, ordenar por qualidade, custo-benefício,
-   avaliações ou vendas usa uma página incompleta.
+   avaliações ou vendas usa uma página incompleta. A ordenação escolhida fica salva e vale
+   para as próximas buscas.
 5. um botão **"+ Página N"** que soma a próxima página de resultados à mesma tela, até
    três páginas. A ordenação e o custo-benefício passam a valer sobre o conjunto inteiro,
    e a paginação do rodapé é reescrita para seguir a partir da primeira página ainda não
    carregada.
 
-Os resultados ficam em cache por 24h (`chrome.storage.local`).
+Os resultados ficam em cache por 24h (`chrome.storage.local`); anúncios sem avaliação, por
+6h. Entradas vencidas são apagadas quando o navegador inicia, e o popup mostra o tamanho do
+cache e permite limpá-lo. Se o markup visível da página de detalhe mudar, a nota e o nº de
+avaliações ainda são lidos do JSON-LD (`aggregateRating`) que o ML embute para buscadores.
 
 ### Por que "+ Página N" abre uma aba
 
@@ -77,7 +81,8 @@ por MLB id.
 
 1. Abra `chrome://extensions` (ou `edge://extensions`).
 2. Ative **Modo do desenvolvedor**.
-3. **Carregar sem compactação** → selecione a pasta `extensao/`.
+3. **Carregar sem compactação** → selecione a pasta raiz deste repositório (a que tem o
+   `manifest.json`).
 4. Abra uma busca, ex.: <https://lista.mercadolivre.com.br/calca>.
 
 Ajuste `m` e `C` no ícone da extensão. O popup mostra, ao vivo, como três anúncios de
@@ -85,27 +90,55 @@ exemplo são pontuados e reordenados a cada mudança — arraste **Avaliações 
 até o mínimo e veja o "5,0 com 3 avaliações" saltar para o primeiro lugar, que é
 exatamente o erro que o score existe para corrigir.
 
+**Esconder com menos de** tira da busca os anúncios com poucas avaliações (0, 5, 10, 25,
+50, 100, 250 ou 500); a barra diz quantos ficaram ocultos.
+
+Ao **Salvar**, as buscas abertas recalculam na hora — sem recarregar a aba, então as
+páginas somadas e a ordenação continuam lá.
+
+## Testes
+
+```
+npm install
+npm test          # unitários: fórmula, config, parser do detalhe (node:test)
+npm run test:e2e  # ponta a ponta: Chromium real com a extensão carregada
+```
+
+O teste ponta a ponta sobe um servidor HTTPS local que imita a busca e as páginas de
+detalhe do ML (`tests/e2e/fixtures.mjs`) e faz o Chromium resolver `*.mercadolivre.com.br`
+para ele. Verifica badges, ordenação e a memória dela, cache, config ao vivo, o filtro de
+avaliações, "+ Página N" (dedupe e paginação reescrita) e o popup. Precisa de `openssl` e
+do Chromium do Playwright. Os fixtures seguem o markup que os seletores esperam — não
+substituem conferir, de vez em quando, numa busca de verdade.
+
 ## Estrutura
 
 ```
-extensao/
+.
 ├─ manifest.json
 ├─ src/
-│  ├─ bayes.js        # fórmula do score (content script)
+│  ├─ bayes.js        # fórmula do score, config e formatação (content script + popup)
 │  ├─ pages.js        # URLs das páginas + modo colheita (aba em segundo plano)
-│  ├─ content.js      # lê cards, injeta badges, ordena, funde páginas
-│  ├─ background.js   # fetch da página de detalhe + parsing (regex) + cache/fila
+│  ├─ content.js      # lê cards, injeta badges, ordena, filtra, funde páginas
+│  ├─ background.js   # fetch da página de detalhe + cache/fila/retry
 │  │                  # + abre/fecha a aba de colheita
+│  ├─ parse.js        # parsing (regex + JSON-LD) do HTML de detalhe
 │  └─ styles.css
-└─ popup/             # configuração de m e C
+├─ popup/             # m, C, mínimo de avaliações e cache
+├─ icons/             # logo.svg + PNGs (npm run icons)
+└─ tests/
+   ├─ unit/           # node --test
+   └─ e2e/            # Playwright + servidor HTTPS falso do ML
 ```
 
-## Limitações conhecidas (v0.1)
+## Limitações conhecidas (v0.2)
 
 - **API de reviews do ML está fechada (403)** — por isso o parsing é feito sobre o HTML de
   detalhe. Se o ML mudar as classes (`ui-pdp-review__rating`, `ui-pdp-review__amount`,
   `ui-review-capability-rating__level__progress-bar__fill-background`), o parser precisa de ajuste.
-- Cards **patrocinados** são resolvidos seguindo o redirect `click1.mercadolivre.com.br`, o que
-  contabiliza um clique de anúncio. Melhoria futura: construir a URL canônica a partir do MLB id.
+- Cards **patrocinados** usam o destino real embutido no link (`urldest`), sem passar pelo
+  `click1.mercadolivre.com.br` — nenhum clique de anúncio é contabilizado. Se o link não
+  trouxer `urldest`, a extensão monta a URL canônica `produto.mercadolivre.com.br/MLB-<id>`;
+  esse caminho ainda não foi conferido contra o site real.
 - Baixar N páginas de detalhe é mais lento e pode sofrer *rate limit*; a fila usa concorrência 4
-  com respiro de 120 ms.
+  com respiro de 120 ms, e respostas 429/5xx são repetidas até 2 vezes com espera crescente.

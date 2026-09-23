@@ -22,6 +22,9 @@ let loadingPage = false;
 // Config do usuário (popup), com fallback nos padrões.
 let CFG = { ...ML.BAYES_DEFAULTS };
 
+// Referências aos badges de qualidade (re-renderizados quando a config muda).
+const qualityBadges = new WeakMap();
+
 // Referências aos badges assíncronos de cada card (não cabem em dataset).
 const valueBadges = new WeakMap();
 const reviewsBadges = new WeakMap();
@@ -65,12 +68,19 @@ function resolveProduct(anchor) {
     }
   } catch (_) {}
 
-  // MLB id: tenta o padrão da URL e o item_id embutido.
+  // MLB id. Numa página de catálogo (/p/MLB…) o id do caminho é do PRODUTO, que vários
+  // vendedores compartilham; o `item_id` da query identifica o anúncio. Prefere ele.
   let id = null;
-  const idM = url.match(/MLB-?(\d{6,})/) || url.match(/item_id[=%]?3?D?MLB(\d{6,})/i);
+  const idM = url.match(/item_id(?:=|:|%3A|%3D)MLB-?(\d{6,})/i) || url.match(/MLB-?(\d{6,})/);
   if (idM) id = "MLB" + idM[1];
+  if (!id) return null;
 
-  return id ? { mlbId: id, productUrl: url.split("#")[0] } : null;
+  // Link de anúncio sem `urldest`: segui-lo contabilizaria um clique pago. Vai direto
+  // ao anúncio pela URL canônica, montada a partir do id.
+  if (/click\d*\.mercadolivre|\/mclics\//.test(url)) {
+    url = `https://produto.mercadolivre.com.br/${id.replace("MLB", "MLB-")}`;
+  }
+  return { mlbId: id, productUrl: url.split("#")[0] };
 }
 
 // ---- badges ----------------------------------------------------------------
@@ -81,17 +91,35 @@ function makeBadge(cls, text) {
   return b;
 }
 
+const fmt = ML.formatNumber;
+const plural = (n, one, many) => (n === 1 ? one : many);
+
 function renderQuality(badge, { score, rating, count, error }) {
-  badge.classList.remove("mlscore-badge--loading");
+  badge.className = "mlscore-badge";
+  badge.style.background = "";
   if (error || score == null) {
     badge.classList.add("mlscore-badge--error");
-    badge.textContent = rating != null ? `nota ${rating} · s/ nº aval.` : "sem dados";
-    badge.title = error || "Não foi possível obter o número de avaliações.";
+    badge.textContent = error ? "sem dados" : "sem avaliações";
+    badge.title = error || "Este anúncio ainda não tem avaliações.";
     return;
   }
   badge.style.background = ML.scoreColor(score);
-  badge.textContent = `Qualidade ${score}`;
-  badge.title = `Score bayesiano de qualidade ${score}/100\nNota ${rating} · ${count.toLocaleString("pt-BR")} avaliações`;
+  badge.textContent = `Qualidade ${fmt(score)}`;
+  badge.title =
+    `Score bayesiano de qualidade: ${fmt(score)}/100\n` +
+    `Nota ${fmt(rating)} com ${fmt(count, 0)} ${plural(count, "avaliação", "avaliações")}, ` +
+    `ajustada para uma nota esperada de ${fmt(CFG.priorMean)}.`;
+}
+
+// Recalcula o score de um card a partir dos dados já recebidos (sem novo fetch).
+function scoreCard(card) {
+  const badge = qualityBadges.get(card);
+  if (!badge || card.dataset.mlerror) return;
+  const R = card.dataset.mlrating === undefined ? null : Number(card.dataset.mlrating);
+  const n = Number(card.dataset.mlcount) || 0;
+  const score = R == null ? null : ML.bayesianScore100(R, n, CFG);
+  card.dataset.mlscore = String(score ?? -1);
+  renderQuality(badge, { score, rating: R, count: n });
 }
 
 // Nº EXATO de avaliações — só existe na página de detalhe (a busca não expõe).
@@ -100,12 +128,14 @@ function renderReviews(card, count) {
   if (!badge) return;
   badge.classList.remove("mlscore-reviews--loading");
   if (count && count > 0) {
-    badge.textContent = `⭐ ${count.toLocaleString("pt-BR")}`;
-    badge.title = `${count.toLocaleString("pt-BR")} avaliações (número exato, da página do produto)`;
+    badge.textContent = `${fmt(count, 0)} aval.`;
+    badge.title = `${fmt(count, 0)} ${plural(count, "avaliação", "avaliações")} (número exato, da página do produto)`;
     card.dataset.mlreviews = String(count);
   } else {
-    badge.textContent = "⭐ —";
-    badge.title = "Este anúncio não tem avaliações.";
+    // Erro de leitura não é "zero avaliações": não afirma um número que não sabe.
+    badge.textContent = card.dataset.mlerror ? "? aval." : "0 aval.";
+    badge.title = card.dataset.mlerror ? "Não foi possível ler as avaliações." : "Este anúncio não tem avaliações.";
+    badge.classList.add("mlscore-reviews--empty");
     delete card.dataset.mlreviews;
   }
 }
@@ -118,6 +148,26 @@ function renderSold(card, sold) {
   } else {
     delete card.dataset.mlsold;
   }
+}
+
+// Esconde (sem remover) anúncios abaixo do mínimo de avaliações. Só vale para quem já
+// tem resposta: um card com erro de leitura não é escondido por falta de dado.
+function applyFilter(card) {
+  const min = CFG.minReviews || 0;
+  const known = card.dataset.mlscore !== undefined && !card.dataset.mlerror;
+  const hide = min > 0 && known && (Number(card.dataset.mlreviews) || 0) < min;
+  card.classList.toggle("mlscore-hidden", hide);
+}
+
+// Várias respostas chegam juntas; recalcular e reordenar a cada uma faria a grade
+// pular dezenas de vezes enquanto o usuário rola. Agrupa em um ciclo só.
+let refreshTimer = null;
+function scheduleRefresh() {
+  if (refreshTimer) return;
+  refreshTimer = setTimeout(() => {
+    refreshTimer = null;
+    refreshValueBadges();
+  }, 80);
 }
 
 // Recalcula o custo-benefício de TODOS os cards já pontuados (normaliza pela página).
@@ -134,14 +184,15 @@ function refreshValueBadges() {
     const v = norm[i];
     c.dataset.mlvalue = String(v ?? -1);
     if (v == null) {
-      badge.className = "mlscore-badge mlscore-badge--error";
+      badge.className = "mlscore-cb mlscore-cb--empty";
       badge.textContent = "C/B —";
       badge.title = "Sem preço ou score para calcular custo-benefício.";
     } else {
       badge.className = "mlscore-cb";
       badge.textContent = `C/B ${v}`;
-      badge.title = `Custo-benefício ${v}/100 (relativo aos resultados desta página)\nMelhor relação qualidade/preço = 100`;
+      badge.title = `Custo-benefício ${v}/100, relativo aos anúncios desta tela.\nO melhor equilíbrio entre qualidade e preço = 100.`;
     }
+    applyFilter(c);
   });
   // Se o usuário escolheu uma ordem que depende de dados assíncronos, reaplica.
   if (["quality", "value", "reviews", "sold"].includes(currentSort)) applySort(currentSort);
@@ -151,12 +202,15 @@ function refreshValueBadges() {
 // ---- processamento de um card ----------------------------------------------
 let orderCounter = 0;
 
-function processCard(card) {
+async function processCard(card) {
   if (card.dataset[PROCESSED]) return;
+  // Sem título = slot de publicidade (ou card ainda renderizando: é reavaliado na
+  // próxima mutação). Não ganha badge nem entra na conta de pontuados.
+  const anchor = getTitleAnchor(card);
+  if (!anchor) return;
   card.dataset[PROCESSED] = "1";
   card.dataset.mlorder = String(orderCounter++); // preserva a ordem original (relevância)
 
-  const anchor = getTitleAnchor(card);
   const rating = getSearchRating(card);
   const price = getPrice(card);
   const prod = resolveProduct(anchor);
@@ -166,52 +220,46 @@ function processCard(card) {
   wrap.className = "mlscore-wrap";
   const quality = makeBadge("mlscore-badge mlscore-badge--loading", "qualidade…");
   const value = makeBadge("mlscore-cb mlscore-cb--loading", "C/B…");
-  const reviewsBadge = makeBadge("mlscore-reviews mlscore-reviews--loading", "⭐…");
+  const reviewsBadge = makeBadge("mlscore-reviews mlscore-reviews--loading", "aval.…");
   wrap.append(quality, value, reviewsBadge);
   host.prepend(wrap);
 
+  qualityBadges.set(card, quality);
   valueBadges.set(card, value);
   reviewsBadges.set(card, reviewsBadge);
   if (price != null) card.dataset.mlprice = String(price);
 
-  if (!prod) {
-    renderQuality(quality, { score: null, rating, error: "Não foi possível identificar o produto." });
+  const fail = (error) => {
+    card.dataset.mlerror = "1";
     card.dataset.mlscore = "-1";
+    renderQuality(quality, { score: null, rating, error });
     renderReviews(card, null);
     renderSold(card, null);
-    refreshValueBadges();
-    return;
-  }
+    scheduleRefresh();
+  };
 
-  chrome.runtime.sendMessage(
-    { type: "getReviews", mlbId: prod.mlbId, productUrl: prod.productUrl },
-    (resp) => {
-      if (chrome.runtime.lastError || !resp?.ok) {
-        const error = chrome.runtime.lastError?.message || resp?.error;
-        renderQuality(quality, { score: null, rating, error });
-        card.dataset.mlscore = "-1";
-        renderReviews(card, null);
-        renderSold(card, null);
-        refreshValueBadges();
-        return;
-      }
-      // Nota: prefere a do detalhe (mais precisa); cai p/ a da busca se faltar.
-      const R = resp.data.rating ?? rating;
-      const n = resp.data.count ?? 0;
-      if (R == null) {
-        renderQuality(quality, { score: null, rating: null, error: "Sem avaliações." });
-        card.dataset.mlscore = "-1";
-      } else {
-        const score = ML.bayesianScore100(R, n, CFG);
-        card.dataset.mlscore = String(score ?? -1);
-        renderQuality(quality, { score, rating: R, count: n });
-      }
-      // Avaliações (nº exato) e vendas (faixa): SEMPRE do detalhe.
-      renderReviews(card, n);
-      renderSold(card, resp.data.sold);
-      refreshValueBadges();
-    }
-  );
+  if (!prod) return fail("Não foi possível identificar o produto.");
+
+  let resp;
+  try {
+    resp = await chrome.runtime.sendMessage({ type: "getReviews", mlbId: prod.mlbId, productUrl: prod.productUrl });
+  } catch (err) {
+    // Extensão recarregada/atualizada com a aba aberta: o contexto antigo morre.
+    return fail(String(err?.message || err));
+  }
+  if (!resp?.ok) return fail(resp?.error || "Falha ao ler a página do produto.");
+
+  // Nota: prefere a do detalhe (mais precisa); cai p/ a da busca se faltar. Nota da
+  // busca sem nº de avaliações conta como n = 0: o score fica no prior, que é o certo.
+  const R = resp.data.rating ?? rating;
+  const n = resp.data.count ?? 0;
+  if (R != null) card.dataset.mlrating = String(R);
+  card.dataset.mlcount = String(n);
+  scoreCard(card);
+  // Avaliações (nº exato) e vendas (faixa): SEMPRE do detalhe.
+  renderReviews(card, R == null ? 0 : n);
+  renderSold(card, resp.data.sold);
+  scheduleRefresh();
 }
 
 function scanCards() {
@@ -232,7 +280,14 @@ const SORT_MODES = {
 
 let currentSort = "rel";
 
+// Clique do usuário: aplica e lembra a escolha para as próximas buscas.
+function chooseSort(mode) {
+  applySort(mode);
+  chrome.storage.local.set({ sortMode: mode }).catch(() => {});
+}
+
 function applySort(mode) {
+  if (!SORT_MODES[mode]) mode = "rel";
   currentSort = mode;
   syncToolbar();
   const { attr, asc } = SORT_MODES[mode] || SORT_MODES.rel;
@@ -327,6 +382,8 @@ async function loadNextPage() {
 // marcadores inertes e os links seguem a partir da primeira ainda não carregada.
 // Recria os <li> em vez de editá-los — assim os handlers do ML saem junto com os
 // nós antigos e os nossos href passam a valer.
+const escapeAttr = (s) => String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+
 function rewritePagination() {
   const ul = document.querySelector("ul.andes-pagination");
   if (!ul || !MLP) return;
@@ -347,7 +404,7 @@ function rewritePagination() {
     }
     return (
       '<li class="andes-pagination__button">' +
-      `<a class="andes-pagination__link" href="${urls[String(n)]}" aria-label="Vá para a página ${n}">${n}</a></li>`
+      `<a class="andes-pagination__link" href="${escapeAttr(urls[String(n)])}" aria-label="Vá para a página ${n}">${n}</a></li>`
     );
   });
 
@@ -355,7 +412,7 @@ function rewritePagination() {
   if (after && after <= last) {
     items.push(
       '<li class="andes-pagination__button andes-pagination__button--next">' +
-        `<a class="andes-pagination__link" href="${urls[String(after)]}" title="Seguinte">` +
+        `<a class="andes-pagination__link" href="${escapeAttr(urls[String(after)])}" title="Seguinte">` +
         '<span class="andes-pagination__arrow-title">Seguinte</span></a></li>'
     );
   }
@@ -415,9 +472,18 @@ function injectToolbar() {
   results.insertBefore(bar, grid);
 
   bar.querySelectorAll(".mlscore-pill").forEach((btn) => {
-    btn.addEventListener("click", () => applySort(btn.dataset.mode));
+    btn.addEventListener("click", () => chooseSort(btn.dataset.mode));
   });
   bar.querySelector("#mlscore-more").addEventListener("click", loadNextPage);
+
+  // Em coluna estreita a faixa de critérios rola na horizontal; o degradê na borda
+  // avisa que há mais opções (Menor/Maior preço) escondidas à direita.
+  const sort = bar.querySelector(".mlscore-bar__sort");
+  const markOverflow = () =>
+    sort.classList.toggle("mlscore-bar__sort--more", sort.scrollLeft + sort.clientWidth < sort.scrollWidth - 1);
+  sort.addEventListener("scroll", markOverflow, { passive: true });
+  new ResizeObserver(markOverflow).observe(sort);
+
   syncToolbar();
 }
 
@@ -446,11 +512,14 @@ function syncToolbar() {
     btn.setAttribute("aria-pressed", String(on));
   });
 
-  const cards = document.querySelectorAll(CARD_SEL);
+  // Só os cards de produto: slots de publicidade não são pontuáveis.
+  const cards = document.querySelectorAll(`${CARD_SEL}[data-mlscore-done]`);
   const total = cards.length;
   let done = 0;
+  let hidden = 0;
   cards.forEach((c) => {
     if (c.dataset.mlscore !== undefined) done++;
+    if (c.classList.contains("mlscore-hidden")) hidden++;
   });
   // Botão de próxima página: some quando não há mais o que somar.
   const more = bar.querySelector("#mlscore-more");
@@ -472,21 +541,40 @@ function syncToolbar() {
   const fill = bar.querySelector("#mlscore-progress");
   if (!total || meter.classList.contains("mlscore-bar__meter--warn")) return;
   const pages = loadedPages.length > 1 ? ` · páginas ${loadedPages[0]}–${loadedPages[loadedPages.length - 1]}` : "";
+  const hid = hidden
+    ? ` · ${hidden} ${plural(hidden, "oculto", "ocultos")} (menos de ${fmt(CFG.minReviews, 0)} aval.)`
+    : "";
   meter.textContent =
-    (done < total ? `${done} de ${total} anúncios pontuados` : `${total} anúncios pontuados`) + pages;
+    (done < total ? `${done} de ${total} anúncios pontuados` : `${total} anúncios pontuados`) + pages + hid;
   bar.classList.toggle("mlscore-bar--ready", done >= total);
   fill.style.width = `${Math.round((done / total) * 100)}%`;
 }
 
 // ---- inicialização + observação de novos cards -----------------------------
+// Config salva no popup vale na hora, sem recarregar a aba — recarregar perderia as
+// páginas somadas e a ordenação. Os dados do detalhe já estão nos cards: é só recalcular.
+function onConfigChanged(config) {
+  CFG = ML.sanitizeConfig(config);
+  document.querySelectorAll(`${CARD_SEL}[data-mlscore-done]`).forEach(scoreCard);
+  refreshValueBadges();
+}
+
 async function init() {
+  let sortMode = "rel";
   try {
-    const { config } = await chrome.storage.local.get("config");
-    if (config) CFG = { ...ML.BAYES_DEFAULTS, ...config };
+    const stored = await chrome.storage.local.get(["config", "sortMode"]);
+    CFG = ML.sanitizeConfig(stored.config);
+    if (SORT_MODES[stored.sortMode]) sortMode = stored.sortMode;
   } catch (_) {}
   loadedPages.push(MLP ? MLP.pagination().selected : 1);
+  currentSort = sortMode;
   injectToolbar();
   scanCards();
+  if (sortMode !== "rel") applySort(sortMode);
+
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && changes.config) onConfigChanged(changes.config.newValue);
+  });
 }
 
 // Numa aba de colheita nada disso roda: ela existe só para renderizar e entregar os
