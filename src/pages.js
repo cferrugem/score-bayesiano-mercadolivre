@@ -32,8 +32,11 @@
     if (cached) return cached;
     cached = { urls: {}, selected: 1, last: 1 };
     try {
+      // O estado vem como JSON dentro de string JS: barras como \u002F, "&" de filtros
+      // como \u0026 e aspas escapadas. Desfaz tudo antes de ler as URLs.
       const raw = document.documentElement.outerHTML
-        .replace(/\\u002F/gi, "/")
+        .replace(/\\u([0-9a-f]{4})/gi, (_, hex) => String.fromCharCode(parseInt(hex, 16)))
+        .replace(/\\\//g, "/")
         .replace(/\\"/g, '"');
       const block = raw.match(/"pagination_nodes_url":\[(.*?)\]/s);
       if (block) {
@@ -58,6 +61,9 @@
     let last = -1;
     let stable = 0;
     for (let i = 0; i < 72; i++) {
+      // Página sem grid nenhum depois de 5s (erro, captcha, busca vazia): não adianta
+      // esperar os 18s inteiros.
+      if (i >= 20 && !document.querySelector(GRID_SEL)) return 0;
       const n = document.querySelectorAll(`${GRID_SEL} > ${ITEM_SEL}`).length;
       if (n > 0 && n === last) {
         if (++stable >= 2) return n;

@@ -1,12 +1,17 @@
 // Service worker (MV3, módulo). Busca a página de detalhe de cada produto em segundo plano
 // e extrai nota + nº de avaliações + distribuição, com cache e limite de concorrência.
-//
-// Obs.: service workers do MV3 NÃO têm DOMParser; por isso o parsing é feito por regex
-// sobre o HTML cru. Os seletores foram validados em páginas reais do Mercado Livre.
+// O parsing em si mora em parse.js (testável em Node).
+
+import { looksLikeProductPage, parseDetail } from "./parse.js";
 
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
+// Anúncio sem avaliação nem venda: o resultado é legítimo, mas muda mais rápido que o
+// de um anúncio consolidado — e, se o parser quebrou, o dano dura só algumas horas.
+const EMPTY_TTL_MS = 6 * 60 * 60 * 1000;
 const MAX_CONCURRENCY = 4;
 const REQUEST_DELAY_MS = 120; // respiro entre requisições p/ evitar rate limit
+const MAX_RETRIES = 2; // para 429/5xx, com espera crescente
+const RETRY_BASE_MS = 1500;
 
 // ---- fila com concorrência limitada ----------------------------------------
 let active = 0;
@@ -33,60 +38,75 @@ function pump() {
   }
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // ---- cache em chrome.storage.local -----------------------------------------
+const CACHE_PREFIX = "rev:";
+
+function isFresh(entry, now = Date.now()) {
+  return entry && now - entry.ts < (entry.ttl || CACHE_TTL_MS);
+}
+
 async function cacheGet(mlbId) {
-  const key = `rev:${mlbId}`;
+  const key = CACHE_PREFIX + mlbId;
   const store = await chrome.storage.local.get(key);
   const entry = store[key];
-  if (entry && Date.now() - entry.ts < CACHE_TTL_MS) return entry.data;
-  return null;
+  return isFresh(entry) ? entry.data : null;
 }
 
-async function cacheSet(mlbId, data) {
-  await chrome.storage.local.set({ [`rev:${mlbId}`]: { ts: Date.now(), data } });
+async function cacheSet(mlbId, data, ttl) {
+  await chrome.storage.local.set({ [CACHE_PREFIX + mlbId]: { ts: Date.now(), ttl, data } });
 }
 
-// ---- parsing do HTML de detalhe --------------------------------------------
-function parseDetail(html) {
-  const ratingM = html.match(/ui-pdp-review__rating"[^>]*>\s*([\d.,]+)/);
-  const amountM = html.match(/ui-pdp-review__amount"[^>]*>\s*\(([\d.\s]+)\)/);
-
-  const rating = ratingM ? parseFloat(ratingM[1].replace(",", ".")) : null;
-  const count = amountM ? parseInt(amountM[1].replace(/[^\d]/g, ""), 10) : null;
-
-  // distribuição 5→1 (larguras das barras, em %)
-  const dist = [];
-  const re = /ui-review-capability-rating__level__progress-bar__fill-background"[^>]*style="width:\s*([\d.]+)%/g;
-  let m;
-  while ((m = re.exec(html)) !== null) dist.push(parseFloat(m[1]));
-
-  // vendas DO ANÚNCIO (subtítulo, ex.: "Novo  |  +10 mil vendidos"). Diferente do número
-  // da busca, que costuma agregar o catálogo inteiro (todos os vendedores) e engana.
-  let sold = null;
-  const subM = html.match(/ui-pdp-subtitle"[^>]*>([^<]*)/);
-  if (subM && /vendido/i.test(subM[1])) {
-    const after = subM[1].split("|").pop().trim(); // "+10 mil vendidos"
-    const text = after.replace(/vendidos?/i, "").trim(); // "+10 mil"
-    const sm = after.match(/([\d.,]+)\s*(milh(?:ão|ões)|mil|mi)?/i);
-    let num = 0;
-    if (sm) {
-      num = parseFloat(sm[1].replace(/\./g, "").replace(",", "."));
-      const u = (sm[2] || "").toLowerCase();
-      if (u === "mil") num *= 1e3;
-      else if (u === "mi" || u.startsWith("milh")) num *= 1e6;
-      num = Math.round(num);
-    }
-    sold = { text, num };
-  }
-
-  return { rating, count, dist: dist.length === 5 ? dist : null, sold };
+async function cacheKeys() {
+  const all = await chrome.storage.local.get(null);
+  return Object.entries(all).filter(([k]) => k.startsWith(CACHE_PREFIX));
 }
 
+// Entradas vencidas nunca eram apagadas, só ignoradas: o storage crescia sem limite.
+async function purgeExpired() {
+  const now = Date.now();
+  const stale = (await cacheKeys()).filter(([, v]) => !isFresh(v, now)).map(([k]) => k);
+  if (stale.length) await chrome.storage.local.remove(stale);
+}
+
+chrome.runtime.onStartup.addListener(() => purgeExpired().catch(() => {}));
+chrome.runtime.onInstalled.addListener(() => purgeExpired().catch(() => {}));
+
+// ---- busca do detalhe ------------------------------------------------------
 async function fetchReviews(productUrl) {
-  const res = await fetch(productUrl, { credentials: "include", redirect: "follow" });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const html = await res.text();
-  return parseDetail(html);
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(productUrl, { credentials: "include", redirect: "follow" });
+    // 429 (rate limit) e 5xx costumam passar sozinhos: espera e tenta de novo.
+    if ((res.status === 429 || res.status >= 500) && attempt < MAX_RETRIES) {
+      await sleep(RETRY_BASE_MS * 2 ** attempt);
+      continue;
+    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const html = await res.text();
+    return { ...parseDetail(html), isProduct: looksLikeProductPage(html) };
+  }
+}
+
+// Pedidos simultâneos do mesmo anúncio (duas abas, ou o mesmo item em duas páginas)
+// compartilham um único fetch.
+const inflight = new Map();
+
+async function getReviews(mlbId, productUrl) {
+  const cached = await cacheGet(mlbId);
+  if (cached) return { data: cached, cached: true };
+
+  if (!inflight.has(mlbId)) {
+    const job = schedule(() => fetchReviews(productUrl))
+      .then(async ({ isProduct, ...data }) => {
+        if (data.rating != null || data.sold != null) await cacheSet(mlbId, data);
+        else if (isProduct) await cacheSet(mlbId, data, EMPTY_TTL_MS);
+        return data;
+      })
+      .finally(() => inflight.delete(mlbId));
+    inflight.set(mlbId, job);
+  }
+  return { data: await inflight.get(mlbId), cached: false };
 }
 
 // ---- colheita de páginas seguintes -----------------------------------------
@@ -129,9 +149,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 // ---- mensageria ------------------------------------------------------------
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg?.type === "harvested") {
+    // Só fecha abas que nós mesmos abrimos: um link colado com o hash de colheita
+    // não pode fazer a aba do usuário sumir.
     const tabId = sender.tab?.id;
-    settleHarvest(tabId, "resolve", msg.cards || []);
-    closeTab(tabId);
+    if (settleHarvest(tabId, "resolve", msg.cards || [])) closeTab(tabId);
     return false;
   }
 
@@ -146,18 +167,28 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true; // resposta assíncrona
   }
 
-  if (msg?.type !== "getReviews") return false;
-  (async () => {
-    try {
-      const cached = await cacheGet(msg.mlbId);
-      if (cached) return sendResponse({ ok: true, data: cached, cached: true });
+  if (msg?.type === "cacheStats") {
+    cacheKeys().then(
+      (entries) => sendResponse({ ok: true, count: entries.filter(([, v]) => isFresh(v)).length }),
+      (err) => sendResponse({ ok: false, error: String(err?.message || err) })
+    );
+    return true;
+  }
 
-      const data = await schedule(() => fetchReviews(msg.productUrl));
-      if (data.rating != null || data.sold != null) await cacheSet(msg.mlbId, data);
-      sendResponse({ ok: true, data });
-    } catch (err) {
-      sendResponse({ ok: false, error: String(err?.message || err) });
-    }
-  })();
+  if (msg?.type === "clearCache") {
+    cacheKeys()
+      .then((entries) => chrome.storage.local.remove(entries.map(([k]) => k)))
+      .then(
+        () => sendResponse({ ok: true }),
+        (err) => sendResponse({ ok: false, error: String(err?.message || err) })
+      );
+    return true;
+  }
+
+  if (msg?.type !== "getReviews") return false;
+  getReviews(msg.mlbId, msg.productUrl).then(
+    ({ data, cached }) => sendResponse({ ok: true, data, cached }),
+    (err) => sendResponse({ ok: false, error: String(err?.message || err) })
+  );
   return true; // resposta assíncrona
 });

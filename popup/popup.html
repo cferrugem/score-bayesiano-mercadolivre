@@ -146,6 +146,9 @@
         text-align: center;
       }
 
+      .p-row--hidden { opacity: 0.55; }
+      .p-score--hidden { color: var(--muted); background: var(--line); font-weight: 600; }
+
       /* ações */
       footer { display: flex; align-items: center; gap: 10px; padding: 12px 16px 10px; }
       button {
@@ -172,14 +175,45 @@
         border: 1px solid var(--line);
       }
       #reset:hover { background: var(--wash); color: var(--text); }
+      #save:disabled {
+        cursor: default;
+        background: var(--wash);
+        border-color: var(--line);
+        color: var(--muted);
+      }
       button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
       #status {
         min-height: 14px;
-        margin: 0 16px 10px;
+        margin: 0 16px 8px;
         font-size: 11.5px;
         font-weight: 600;
-        color: #00893c;
+        color: #00843f;
       }
+
+      /* cache: informação de manutenção, discreta no rodapé */
+      .cache {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 9px 16px 11px;
+        border-top: 1px solid var(--line);
+        font-size: 11px;
+        color: var(--muted);
+        font-variant-numeric: tabular-nums;
+      }
+      #clearCache {
+        padding: 0;
+        border: 0;
+        background: none;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--muted);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+      }
+      #clearCache:hover { color: var(--text); }
+      #clearCache:disabled { cursor: default; text-decoration: none; opacity: 0.6; }
 
       @media (prefers-reduced-motion: reduce) {
         * { transition: none !important; }
@@ -215,6 +249,18 @@
         <div class="f-scale"><span>1</span><span>200</span></div>
         <p class="f-hint">Quantas avaliações um anúncio precisa para a nota dele valer por si só.</p>
       </div>
+
+      <div class="field">
+        <div class="f-top">
+          <label class="f-label" for="minReviews">Esconder com menos de</label>
+          <output class="f-value" id="minReviewsOut" for="minReviews"></output>
+        </div>
+        <!-- O slider anda por degraus (0, 5, 10, 25…), não de 1 em 1: a diferença entre
+             37 e 38 avaliações não importa, entre 0 e 10 importa muito. -->
+        <input id="minReviews" type="range" min="0" max="7" step="1" />
+        <div class="f-scale"><span>não esconder</span><span>500</span></div>
+        <p class="f-hint">Some da busca quem tem poucas avaliações. A barra mostra quantos ficaram ocultos.</p>
+      </div>
     </main>
 
     <section class="preview">
@@ -228,6 +274,10 @@
       <button id="save" type="button">Salvar</button>
     </footer>
     <div id="status" role="status"></div>
+    <div class="cache">
+      <span id="cacheInfo">Cache: …</span>
+      <button id="clearCache" type="button">Limpar cache</button>
+    </div>
 
     <script src="../src/bayes.js"></script>
     <script src="popup.js"></script>

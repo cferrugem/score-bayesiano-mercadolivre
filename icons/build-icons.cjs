@@ -1,6 +1,6 @@
 // Gera os PNGs do ícone a partir da mesma geometria do logo.svg.
 // Sem dependências: rasteriza por supersampling e escreve o PNG com o zlib do Node.
-//   node icons/build-icons.js
+//   node icons/build-icons.cjs
 const fs = require("fs");
 const path = require("path");
 const zlib = require("zlib");
